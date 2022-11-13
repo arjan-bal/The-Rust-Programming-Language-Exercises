@@ -1,11 +1,17 @@
-use std::ops::Deref;
+use std::{ops::Deref, rc::Rc};
 
 use crate::List::{Cons, Nil};
+use crate::ListRc::{ConsRc, NilRc};
 
 #[derive(Debug)]
 enum List {
     Cons(i32, Box<List>),
     Nil,
+}
+
+enum ListRc {
+    ConsRc(i32, Rc<ListRc>),
+    NilRc,
 }
 
 /// Implement a struct with functionality similar to Box.
@@ -49,7 +55,25 @@ fn main() {
     let y = MyBox::new(x);
     assert_eq!(x, *y);
 
-    // Two levels of deref coercion happening here:
+    // Two levels of derf coercion happening here:
     // MyBox -> String -> str
     hello(&MyBox::new(String::from("Arjan")));
+
+    // Need to create the following structure using Cons:
+    // b-----
+    //      |
+    // c----a
+    let a = Rc::new(ConsRc(
+        1,
+        Rc::new(ConsRc(2, Rc::new(ConsRc(3, Rc::new(NilRc))))),
+    ));
+    println!("Reference count for a before creating b: {}", Rc::strong_count(&a));
+    let b = ConsRc(4, Rc::clone(&a));
+    println!("Reference count for a after creating b: {}", Rc::strong_count(&a));
+    {
+        let c = ConsRc(5, Rc::clone(&a));
+        println!("Reference count of a after creating c: {}", Rc::strong_count(&a));
+    }
+    println!("Reference count of a after c goes out of scope: {}", Rc::strong_count(&a));
+    
 }
