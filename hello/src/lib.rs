@@ -10,23 +10,46 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 
 struct Worker {
     id: usize,
-    thread: JoinHandle<()>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
         let thread = thread::spawn(move || loop {
-            let job = receiver.lock().unwrap().recv().unwrap();
-            println!("Worker {id} got job. Executing.");
-            job();
+            match receiver.lock().unwrap().recv() {
+                Ok(job) => {
+                    println!("Worker {id} got job. Executing.");
+                    job();
+                }
+                Err(_) => {
+                    println!("Worker id {} disconnected. Shutting down.", id);
+                    break;
+                }
+            }
         });
-        Worker { id, thread }
+        Worker {
+            id,
+            thread: Some(thread),
+        }
     }
 }
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: Option<mpsc::Sender<Job>>,
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+
+        for w in self.workers.iter_mut() {
+            if let Some(thread) = w.thread.take() {
+                println!("Stopping worker {}.", w.id);
+                thread.join().unwrap();
+            }
+        }
+    }
 }
 
 impl ThreadPool {
@@ -46,7 +69,7 @@ impl ThreadPool {
             .collect();
         ThreadPool {
             workers,
-            sender: tx,
+            sender: Some(tx),
         }
     }
 
@@ -56,6 +79,6 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-        self.sender.send(job).unwrap();
+        self.sender.as_ref().unwrap().send(job).unwrap();
     }
 }
